@@ -1,4 +1,5 @@
 # CheXpert MLOps Pipeline
+Implementation pipeline of modern DL classification techniques using CheXpert dataset for multi-class chest x-ray disease classification with user interface
 
 ## Overview
 
