@@ -181,4 +181,5 @@ cython_debug/
 .cursorindexingignore
 
 # Raw CheXpert Data
-data/raw/
+/CheXpert-v1.0/
+/src/data_pipeline/output/
