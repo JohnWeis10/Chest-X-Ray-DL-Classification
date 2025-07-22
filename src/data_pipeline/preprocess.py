@@ -25,6 +25,8 @@ def load_and_preprocess_image(path, template):
     image = cv2.resize(image, (RESIZE_SIZE, RESIZE_SIZE)) # 256x256
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
 
+    #maybe implementing autoencoding
+
     #template matching
     result = cv2.matchTemplate(gray, template, cv2.TM_CCOEFF_NORMED)
     _, _, _, max_loc = cv2.minMaxLoc(result)
@@ -34,13 +36,14 @@ def load_and_preprocess_image(path, template):
     if cropped.shape[:2] != (IMAGE_SIZE, IMAGE_SIZE):
         cropped = cv2.resize(cropped, (IMAGE_SIZE, IMAGE_SIZE))
 
+    # normalize based on ImageNet training set
     rgb = cv2.cvtColor(cropped, cv2.COLOR_BGR2RGB).astype(np.float32) / 255.0
     normalized = ((rgb - IMAGENET_MEAN) / IMAGENET_STD).astype(np.float32)
     return normalized
 
 
 def apply_label_smoothing(labels, a=0.55, b=0.85):
-    # 1 label smoothing for -1 labels. Describes as the best results in the paper
+    # 'U+Ones+LSR' label smoothing for -1 labels. Describes as the best results in the paper
     smoothed = []
     for row in labels:
         new_row = []
@@ -72,24 +75,36 @@ def main(args):
     # prepare output folders
     os.makedirs(args.preprocessed_train, exist_ok=True)
     os.makedirs(args.preprocessed_test, exist_ok=True)
+    os.makedirs(args.preprocessed_val, exist_ok=True)
 
     BATCH_SIZE = 1000  # how many images to process at once
     images = []
     filtered_labels = []
     batch_index = 0
 
-    # save one batch of data to train/test .npz files
+    # save one batch of data to train/test/val .npz files
     def save_batch(imgs, lbls, batch_idx):
-        imgs = np.array(imgs, dtype=np.float32)  # transform to np tensor
-        lbls = apply_label_smoothing(lbls)  # run label smoothing
-        X_train, X_test, y_train, y_test = train_test_split(
+        imgs = np.array(imgs, dtype=np.float32)
+        lbls = apply_label_smoothing(lbls)
+
+        # First split into train_val and test (80% / 20%)
+        X_train_val, X_test, y_train_val, y_test = train_test_split(
             imgs, lbls, test_size=0.2, random_state=42
-        )  # train/test split
-        # save NumPy arrays of preprocessed image tensors and multi-label vectors
+        )
+
+        # Then split train_val into train and val (87.5% / 12.5% of original, which becomes 70/10 overall)
+        X_train, X_val, y_train, y_val = train_test_split(
+            X_train_val, y_train_val, test_size=0.125, random_state=42
+        )
+
         np.savez_compressed(os.path.join(args.preprocessed_train, f"train_batch_{batch_idx}.npz"),
                             images=X_train, labels=y_train)
+
         np.savez_compressed(os.path.join(args.preprocessed_test, f"test_batch_{batch_idx}.npz"),
                             images=X_test, labels=y_test)
+
+        np.savez_compressed(os.path.join(args.preprocessed_val, f"val_batch_{batch_idx}.npz"),
+                            images=X_val, labels=y_val)
 
     for i, rel_path in enumerate(image_rel_paths):
         full_path = os.path.join(args.image_root, rel_path)
@@ -117,7 +132,8 @@ if __name__ == "__main__":
         labels_csv="../../CheXpert-v1.0/train_cheXbert(subset).csv",
         image_root="../../",
         template_image="../../CheXpert-v1.0/Template.jpg",
-        preprocessed_train="output/train", # location of saved preprocessed train data
-        preprocessed_test="output/test" # location of saved preprocessed test data
+        preprocessed_train="output/train",
+        preprocessed_test="output/test",
+        preprocessed_val="output/val"
     )
     main(args)
