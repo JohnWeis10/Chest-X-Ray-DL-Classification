@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Chest X-ray Classifier</title>
+</head>
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+<body>
+    <h1>Upload Chest X-ray</h1>
+    <form method="post" enctype="multipart/form-data">
+        <input type="file" name="file" accept="image/*" required>
+        <input type="submit" value="Classify">
+    </form>
+    {% if result %}
+        <h2>{{ result }}</h2>
+        {% if predictions %}
+            <ul>
+            {% for label, prob in predictions.items() %}
+                <li>{{ label }}: {{ '%.2f'|format(prob * 100) }}%</li>
+            {% endfor %}
+            </ul>
+        {% endif %}
+    {% endif %}
+</body>
+</html>

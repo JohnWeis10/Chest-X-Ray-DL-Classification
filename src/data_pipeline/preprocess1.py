@@ -22,7 +22,8 @@ def load_and_preprocess_image(path, template):
     image = cv2.imread(path)
     if image is None:
         raise ValueError(f"Cannot read image: {path}")
-    image = cv2.resize(image, (RESIZE_SIZE, RESIZE_SIZE)) # 256x256
+    # 256x256
+    image = cv2.resize(image, (RESIZE_SIZE, RESIZE_SIZE))
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
 
     #maybe implementing autoencoding
@@ -57,27 +58,33 @@ def apply_label_smoothing(labels, a=0.55, b=0.85):
 
 def main(args):
     df = pd.read_csv(args.labels_csv)
-    print("Available columns in CSV:", df.columns.tolist())  # check that dataset is reading correctly
+    # check that dataset is reading correctly
+    print("Available columns in CSV:", df.columns.tolist())
 
-    df = df[df['AP/PA'] == 'AP']  # filter for valid scan type
-    df.dropna(subset=['Path'], inplace=True)  # filter out rows with missing image paths
+    # filter for valid scan type
+    df = df[df['AP/PA'] == 'AP']
+    # filter out rows with missing image paths
+    df.dropna(subset=['Path'], inplace=True)
 
-    image_rel_paths = df['Path'].tolist()  # parse image paths
-    labels = df[DISEASE_LABELS].fillna(0).astype(np.float32).values  # set valid labels
-
-    print("First image path example:", os.path.join(args.image_root, df['Path'].iloc[0]))  # confirm image paths look correct
+    # parse image paths
+    image_rel_paths = df['Path'].tolist()
+    # set valid labels
+    labels = df[DISEASE_LABELS].fillna(0).astype(np.float32).values
+    # confirm image paths look correct
+    print("First image path example:", os.path.join(args.image_root, df['Path'].iloc[0]))
 
     # Load my template
     template = cv2.imread(args.template_image, cv2.IMREAD_GRAYSCALE)
-    if template is None or template.shape != (224, 224):  # check valid template
+    #check valid template
+    if template is None or template.shape != (224, 224):
         raise ValueError("Invalid template. Must be 224x224 grayscale.")
 
     # prepare output folders
     os.makedirs(args.preprocessed_train, exist_ok=True)
     os.makedirs(args.preprocessed_test, exist_ok=True)
     os.makedirs(args.preprocessed_val, exist_ok=True)
-
-    BATCH_SIZE = 1000  # how many images to process at once
+    #how many images to process at once
+    BATCH_SIZE = 1000
     images = []
     filtered_labels = []
     batch_index = 0
@@ -109,16 +116,22 @@ def main(args):
     for i, rel_path in enumerate(image_rel_paths):
         full_path = os.path.join(args.image_root, rel_path)
         try:
-            img = load_and_preprocess_image(full_path, template)  # run image preprocessing
-            images.append(img)  # add image to current batch
-            filtered_labels.append(labels[i])  # add label to current batch
+            #image preprocessing
+            img = load_and_preprocess_image(full_path, template)
+            # add image to current batch
+            images.append(img)
+            # add label to current batch
+            filtered_labels.append(labels[i])
         except Exception as e:
-            print(f"Skipping {full_path}: {e}")  # log skipped image
+            # log skipped image
+            print(f"Skipping {full_path}: {e}")
 
         if len(images) >= BATCH_SIZE:
-            save_batch(images, filtered_labels, batch_index)  # write full batch to disk
+            # write batch to disk
+            save_batch(images, filtered_labels, batch_index)
             print(f"Saved batch {batch_index} with {len(images)} images.")
-            images, filtered_labels = [], []  # reset for next batch
+            # reset for next batch
+            images, filtered_labels = [], []
             batch_index += 1
 
     # save final batch (if it has any images)
@@ -137,3 +150,40 @@ if __name__ == "__main__":
         preprocessed_val="output/val"
     )
     main(args)
+
+def preprocess_image_for_inference(image_path: str, template: np.ndarray) -> np.ndarray:
+    """
+    Preprocess a single uploaded image for inference:
+    - Resize to 256x256
+    - Template match to crop 224x224 region
+    - Normalize using ImageNet stats
+    Returns:
+        np.ndarray shape (224, 224, 3)
+    """
+    image = cv2.imread(image_path)
+    if image is None:
+        raise ValueError(f"Cannot read image at path: {image_path}")
+
+    # Resize and grayscale for template matching 256x256
+    image = cv2.resize(image, (RESIZE_SIZE, RESIZE_SIZE))
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+
+    # Template match to find best crop
+    result = cv2.matchTemplate(gray, template, cv2.TM_CCOEFF_NORMED)
+    _, _, _, max_loc = cv2.minMaxLoc(result)
+    x, y = max_loc
+    cropped = image[y:y+IMAGE_SIZE, x:x+IMAGE_SIZE]
+
+    # If crop goes out of bounds, pad and recrop
+    if cropped.shape[0] < IMAGE_SIZE or cropped.shape[1] < IMAGE_SIZE:
+        padded = cv2.copyMakeBorder(image, 0, IMAGE_SIZE, 0, IMAGE_SIZE, cv2.BORDER_CONSTANT, value=0)
+        cropped = padded[y:y+IMAGE_SIZE, x:x+IMAGE_SIZE]
+
+    if cropped.shape[:2] != (IMAGE_SIZE, IMAGE_SIZE):
+        cropped = cv2.resize(cropped, (IMAGE_SIZE, IMAGE_SIZE))
+
+    # Normalize to ImageNet stats
+    rgb = cv2.cvtColor(cropped, cv2.COLOR_BGR2RGB).astype(np.float32) / 255.0
+    normalized = ((rgb - IMAGENET_MEAN) / IMAGENET_STD).astype(np.float32)
+
+    return normalized
